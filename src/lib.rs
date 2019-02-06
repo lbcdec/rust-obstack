@@ -336,6 +336,13 @@ impl<'a, T: ?Sized> Ref<'a, T> {
             ptr::read(ptr)
         }
     }
+
+    #[inline]
+    pub fn forget(this: Self) -> &'a mut T {
+        let p = this.ptr as *mut T;
+        mem::forget(this);
+        unsafe { &mut *p }
+    }
 }
 
 impl<'a, T: ?Sized> Drop for Ref<'a, T> {
