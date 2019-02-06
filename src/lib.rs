@@ -210,6 +210,21 @@ impl Obstack {
         }
     }
 
+    #[inline]
+    pub fn push_slice_by<'a, T, F>(&'a self, size: usize, mut func: F) -> &'a mut [T]
+        where F: FnMut(usize) -> T,
+    {
+        unsafe {
+            let ptr = self.alloc_count::<T>(size) as *mut T;
+            let mut cur_ptr = ptr;
+            for i in 0..size {
+                cur_ptr.write(func(i));
+                cur_ptr = cur_ptr.offset(1);
+            }
+            slice::from_raw_parts_mut(ptr, size)
+        }
+    }
+
     /// Returns the total bytes currently used by values.
     ///
     /// Includes bytes used for alignment padding. However, this figure is *not* the total size
@@ -659,8 +674,14 @@ mod tests {
     fn test_slices() {
         let stack = Obstack::new();
         let slice = stack.push_slice(128, 5u8);
+        {
+            let slice = stack.push_slice_default::<u32>(8);
+            {
+                let slice = stack.push_slice_by(8, |x| x);
+                assert_eq!(slice, &[0, 1, 2, 3, 4, 5, 6, 7]);
+            }
+            assert_eq!(slice, &[0, 0, 0, 0, 0, 0, 0, 0]);
+        }
         assert_eq!(slice.iter().map(|x| *x as usize).fold(0, |a, b| a + b), 128 * 5);
-        let slice = stack.push_slice_default::<u32>(8);
-        assert_eq!(slice, &[0, 0, 0, 0, 0, 0, 0, 0]);
     }
 }
