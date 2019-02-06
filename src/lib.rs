@@ -175,6 +175,41 @@ impl Obstack {
         }
     }
 
+    #[inline]
+    pub fn push_slice<'a, T>(&'a self, size: usize, value: T) -> &'a mut [T]
+        where T: Clone,
+    {
+        unsafe {
+            let ptr = self.alloc_count::<T>(size) as *mut T;
+            let mut count = size;
+            let mut cur_ptr = ptr;
+            while count > 1 {
+                cur_ptr.write(value.clone());
+                count -= 1;
+                cur_ptr = cur_ptr.offset(1);
+            }
+            if count == 1 {
+                cur_ptr.write(value);
+            }
+            slice::from_raw_parts_mut(ptr, size)
+        }
+    }
+
+    #[inline]
+    pub fn push_slice_default<'a, T>(&'a self, size: usize) -> &'a mut [T]
+        where T: Default,
+    {
+        unsafe {
+            let ptr = self.alloc_count::<T>(size) as *mut T;
+            let mut cur_ptr = ptr;
+            for _ in 0..size {
+                cur_ptr.write(T::default());
+                cur_ptr = cur_ptr.offset(1);
+            }
+            slice::from_raw_parts_mut(ptr, size)
+        }
+    }
+
     /// Returns the total bytes currently used by values.
     ///
     /// Includes bytes used for alignment padding. However, this figure is *not* the total size
@@ -212,7 +247,22 @@ impl Obstack {
                 state.alloc(size, alignment) as *mut u8
             }
         } else {
-            mem::align_of_val(value_ref) as *mut u8
+            alignment as *mut u8
+        }
+    }
+
+    #[inline]
+    fn alloc_count<'a, T: Sized>(&'a self, count: usize) -> *mut u8 {
+        let size = mem::size_of::<T>() * count;
+        let alignment = mem::align_of::<T>();
+
+        if size > 0 {
+            unsafe {
+                let state = &mut *self.state.get();
+                state.alloc(size, alignment) as *mut u8
+            }
+        } else {
+            alignment as *mut u8
         }
     }
 }
@@ -603,5 +653,14 @@ mod tests {
 
         // Dropping the stack itself does nothing to the drop counter of course.
         assert_eq!(drop_count.get(), 1);
+    }
+
+    #[test]
+    fn test_slices() {
+        let stack = Obstack::new();
+        let slice = stack.push_slice(128, 5u8);
+        assert_eq!(slice.iter().map(|x| *x as usize).fold(0, |a, b| a + b), 128 * 5);
+        let slice = stack.push_slice_default::<u32>(8);
+        assert_eq!(slice, &[0, 0, 0, 0, 0, 0, 0, 0]);
     }
 }
